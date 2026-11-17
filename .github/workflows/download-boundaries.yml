@@ -1,0 +1,60 @@
+name: Download BIG Village Boundaries
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  download-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download Lampung boundaries from BIG
+        run: python scripts/download_boundaries.py
+
+      - name: Validate GeoJSON and metadata
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          geojson_path = Path("data/boundaries/raw/lampung_villages.geojson")
+          metadata_path = Path("data/boundaries/raw/lampung_villages.metadata.json")
+
+          geojson = json.loads(geojson_path.read_text(encoding="utf-8"))
+          metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+          assert geojson.get("type") == "FeatureCollection", "Invalid GeoJSON type"
+          features = geojson.get("features", [])
+          assert features, "GeoJSON contains no features"
+          assert len(features) == metadata["expected_feature_count"], (
+              "Feature count does not match BIG object ID count"
+          )
+          assert len(features) == metadata["downloaded_feature_count"], (
+              "Feature count does not match downloader metadata"
+          )
+
+          print(f"Validated {len(features)} features.")
+          print(f"GeoJSON size: {geojson_path.stat().st_size / 1024 / 1024:.2f} MiB")
+          PY
+
+      - name: Upload source data as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lampung-village-boundaries
+          path: |
+            data/boundaries/raw/lampung_villages.geojson
+            data/boundaries/raw/lampung_villages.metadata.json
+          if-no-files-found: error
+          retention-days: 30
